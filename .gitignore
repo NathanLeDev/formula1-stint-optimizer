@@ -1,0 +1,19 @@
+# Data caches (OpenF1 API / FastF1) and generated tables — regenerable
+app/data/
+app/cache/
+cache/
+data/cache/
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
