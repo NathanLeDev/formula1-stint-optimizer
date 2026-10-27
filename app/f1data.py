@@ -12,6 +12,13 @@ age of the tyre on it, the circuit, the season, the weather and the traffic.
 
     raw = f1data.load_raw()           # cached after the first run
     base = f1data.build_base(raw)
+    base, per_race = f1data.add_target(base)
+
+`add_target()` carries the second decision of phase 2: what is modelled is not the
+lap time but `gap`, the lap against the median lap of its own race, in seconds.
+It belongs here rather than in a notebook for the same reason the table does —
+a reference recomputed on a subset is a different target, and two errors measured
+against two references do not compare.
 
 Two groups of columns are new, and are here because phase 1 listed them as the
 next thing to check: `track_temp` for the compound confound (section 11), and
@@ -129,8 +136,27 @@ def key_region(sessions):
             "session_key<": int(sessions["session_key"].max()) + 1}
 
 
+def _concat(frames):
+    """Concatenate the frames of one endpoint, column dtypes left to the frames that fill them.
+
+    One race of `laps` reports no `i2_speed` at all, and a column of nothing but
+    nulls arrives from the JSON as `object`. pandas leaves such a column out
+    when it decides the dtype of the result, which is why `i2_speed` is a float
+    today; from pandas 3 it will count, and that one race would turn the column
+    `object` for every race — a speed that no longer compares as a number.
+    Dropping the empty columns per frame and putting them back after keeps the
+    dtype with the races that carry a value, and says so instead of leaning on
+    a default that is about to flip.
+    """
+    if not frames:
+        return pd.DataFrame()
+    columns = list(dict.fromkeys(c for f in frames for c in f.columns))
+    out = pd.concat([f.dropna(axis=1, how="all") for f in frames], ignore_index=True)
+    return out.reindex(columns=columns)
+
+
 def load_sessions(seasons=SEASONS):
-    return pd.concat([get("sessions", year=y) for y in seasons], ignore_index=True)
+    return _concat([get("sessions", year=y) for y in seasons])
 
 
 def held_races(sessions):
@@ -143,8 +169,7 @@ def held_races(sessions):
 def by_session(endpoint, session_keys):
     """One request per race, for the endpoints too large to fetch by range."""
     frames = [get(endpoint, session_key=int(k)) for k in session_keys]
-    frames = [f for f in frames if not f.empty]
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return _concat([f for f in frames if not f.empty])
 
 
 def load_raw(seasons=SEASONS, traffic=True, verbose=True):
@@ -354,6 +379,77 @@ def build_base(raw=None, *, seasons=SEASONS, dry_only=True, neutral=True, from_l
     if traffic:
         base = attach_traffic(base, raw.intervals)
     return base
+
+
+# 7. The target ---------------------------------------------------------------
+
+TARGET_MIN_LAPS = 200      # clean laps a race needs before its median means anything
+TARGET_MIN_DRIVERS = 12    # and cars: a median over a handful of them is one driver’s pace
+
+
+def add_target(base, min_laps=TARGET_MIN_LAPS, min_drivers=TARGET_MIN_DRIVERS):
+    """The modelled quantity: every lap against the median lap of its own race.
+
+    Returns `(table, report)` — the laps of the races that clear the thresholds,
+    with two columns added, and one row per race saying which were kept:
+
+    - `ref_pace`  median `lap_duration` of the race, over all its drivers;
+    - `gap`       `lap_duration - ref_pace`, in seconds. This is the target.
+
+    Seconds, not a ratio: the pit stop loss is in seconds and so is the
+    degradation slope, the simulator adds them up, and a target on another scale
+    would have to be converted back before anything could be added to anything.
+
+    One constant per race, and not the median of the same lap across the field:
+    a per-lap reference would take out the fuel and the track evolution, which
+    are exactly what the model has to learn. It deliberately keeps the fuel (the
+    median sits mid-race, so the gap starts positive and ends negative), the
+    driver and the team level, the tyre age, the compound and the weather. What
+    it takes out is the level of the race itself — the car of that season, the
+    state of the track that day.
+
+    Not the driver’s own median either, tempting as it is: a one-stopper and a
+    two-stopper do not run the same average tyre age, so their medians differ by
+    the strategy, and the target would move with the very decision the simulator
+    is meant to score. Twenty drivers absorb that.
+
+    **Call this once, on the whole `build_base()` table, and keep the column.**
+    A reference recomputed on a subset is a different target: redone on the laps
+    under 15 laps of tyre age it moves by up to 1.2 s, which is more than the
+    error any model here is trying to beat, and two RMSEs measured against two
+    references do not compare.
+
+    The threshold is a guard on the median itself, not a quality filter on the
+    laps: a race shortened by a red flag or one that only half the field
+    finished cannot fix a reliable centre. It excludes nothing on the 2023-2026
+    table, where the thinnest race still carries 409 clean laps and 16 drivers.
+    """
+    g = base.groupby("session_key")
+    report = pd.DataFrame({"circuit": g["circuit"].first(), "year": g["year"].first(),
+                           "laps": g.size(), "drivers": g["driver_number"].nunique(),
+                           "ref_pace": g["lap_duration"].median()})
+    report["kept"] = (report["laps"] >= min_laps) & (report["drivers"] >= min_drivers)
+
+    out = base[base["session_key"].isin(report.index[report["kept"]])].copy()
+    out["ref_pace"] = out["session_key"].map(report["ref_pace"])
+    out["gap"] = out["lap_duration"] - out["ref_pace"]
+    return out, report
+
+
+def check_target(table):
+    """What has to hold for `gap` to be the target it claims to be.
+
+    Raises on the three ways it can be quietly wrong: a race whose median is not
+    zero (a reference computed on something other than these laps), a missing
+    value, and a race left without a reference.
+    """
+    for col in ["gap", "ref_pace"]:        # first: a NaN also moves the median below
+        n = int(table[col].isna().sum())
+        assert n == 0, f"{n} missing values in {col}"
+    med = table.groupby("session_key")["gap"].median().abs().max()
+    assert med < 1e-9, f"median gap is not zero in every race (max {med:.2e} s)"
+    return {"races": table["session_key"].nunique(), "laps": len(table),
+            "max |median| per race": med, "missing": 0}
 
 
 def race_stints(base):
