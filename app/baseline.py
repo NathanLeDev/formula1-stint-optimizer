@@ -6,7 +6,7 @@ What this module does, in the order of the roadmap:
 2. `add_features()`    `race_frac` and `driver_level`, both computed without looking ahead.
 3. `fit()` / `predict()` the reference: a plain least-squares regression of `gap` on the
                        fuel (lap number) and the tyre age, per circuit, optionally per compound.
-4. `evaluate()`        two errors, always together (see below).
+4. `evaluate()`        the per-lap errors and the per-stint error (see below).
 5. `loro()`            the Phase 1 protocol replayed on `gap`, to cross-check the 0.703 s.
 6. `plot_residuals()`  where the reference fails.
 
@@ -18,6 +18,13 @@ driver's race, with his level and the level of the race given for free.
 - `rmse within driver` the same residual after removing the mean of each (race, driver). This is
                        the one that compares with 0.703, and the one that matters for ranking
                        strategies of one driver in one race, where his level is a constant.
+- `mae`                mean absolute residual, reported next to the RMSE because the two part
+                       company when a few large errors dominate.
+- `stint rmse`         error on the **sum** of a stint, over the stints whose clean laps are
+                       consecutive and number at least STINT_MIN_LAPS. This is the one the
+                       simulator inherits, since it adds laps; `stint_table()` splits it by
+                       length bracket. Only 1 stint in 3 763 keeps all the laps it ran, so this
+                       is the sum of the clean laps of a stint, not of the stint as driven.
 
 `driver_level` is the mean gap of the driver over his previous LEVEL_WINDOW races, shrunk towards 0
 by LEVEL_SHRINK pseudo-races. It only uses races that precede the lap in date, so it is available
@@ -39,6 +46,11 @@ LEVEL_SHRINK = 3           # pseudo-races at 0 that pull a short history towards
 
 COMPOUND_COLS = ["MEDIUM", "HARD"]     # offsets against SOFT
 SPECS = ["zero", "circuit", "circuit + compound", "circuit x compound", "circuit + driver level"]
+
+STINT_KEY = ["session_key", "driver_number", "stint_number"]
+STINT_MIN_LAPS = 2         # a sum over a single lap is a lap error, not a stint cost
+STINT_BINS = [0, 10, 20, 30, 10_000]
+STINT_LABELS = ["1-10", "11-20", "21-30", "31+"]
 
 
 def rms(s):
@@ -165,10 +177,68 @@ def residuals(model, x):
     return pd.Series(x["gap"].to_numpy() - predict(model, x), index=x.index, name="res")
 
 
+def stints(x):
+    """One row per stint of `x`: its clean laps, and whether they are consecutive.
+
+    Only 1 stint in 3 763 keeps every lap it actually ran: the cleaning removes the pit-out lap,
+    the pit-in lap, lap 1 and anything above PACE_MAX. So "the sum of a whole stint" is not
+    available. What is available is a run of **consecutive** clean laps, which is what the
+    simulator adds, so a stint with a hole inside it is left out rather than summed across the
+    hole. `hole_free` marks the ones that qualify.
+    """
+    st = (x.groupby(STINT_KEY)
+           .agg(laps=("lap_number", "size"), lo=("lap_number", "min"), hi=("lap_number", "max"))
+           .reset_index())
+    st["hole_free"] = (st["hi"] - st["lo"] + 1) == st["laps"]
+    return st
+
+
+def stint_sums(model, x):
+    """Error on the sum of a stint, one row per eligible stint.
+
+    `error` = sum of the residuals over the stint = (sum of the actual gaps) - (sum of the
+    predicted gaps). It is the quantity the simulator accumulates when it adds laps, and it is
+    not recoverable from the per-lap RMSE: residuals inside a stint are correlated, so they do
+    not cancel the way independent errors would.
+    """
+    st = stints(x)
+    ok = st[st["hole_free"] & (st["laps"] >= STINT_MIN_LAPS)]
+    r = residuals(model, x)
+    per = pd.DataFrame({k: x[k] for k in STINT_KEY})
+    per["error"] = r
+    per = per.groupby(STINT_KEY, as_index=False)["error"].sum()
+    out = ok.merge(per, on=STINT_KEY, how="left")
+    out["bracket"] = pd.cut(out["laps"], STINT_BINS, labels=STINT_LABELS)
+    return out
+
+
+def stint_table(model, x):
+    """The stint-sum error by length bracket, with the two scalings that separate the regimes.
+
+    If the residuals inside a stint were independent, the error on the sum would grow as
+    sqrt(n) and `rmse / sqrt(n)` would be flat across the brackets. If each stint carried one
+    constant offset instead, it would grow as n and `rmse / n` would be flat. Reading both
+    columns says which regime the reference is in, and that is what decides how far a simulated
+    stint can be trusted.
+    """
+    s = stint_sums(model, x)
+    rows = []
+    for bracket, d in s.groupby("bracket", observed=True):
+        n = float(d["laps"].mean())
+        rows.append({"bracket": bracket, "stints": len(d), "mean laps": n,
+                     "rmse": rms(d["error"]), "bias": float(d["error"].mean()),
+                     "rmse / sqrt(n)": rms(d["error"]) / np.sqrt(n),
+                     "rmse / n": rms(d["error"]) / n})
+    return pd.DataFrame(rows).set_index("bracket")
+
+
 def evaluate(model, x):
     r = residuals(model, x)
     within = r - r.groupby([x["session_key"], x["driver_number"]]).transform("mean")
-    return {"rmse": rms(r), "rmse within driver": rms(within), "bias": float(r.mean()),
+    s = stint_sums(model, x)
+    return {"rmse": rms(r), "rmse within driver": rms(within), "mae": float(r.abs().mean()),
+            "bias": float(r.mean()), "stint rmse": rms(s["error"]),
+            "stint bias": float(s["error"].mean()), "stints": len(s),
             "own coef": own_coefficients(model, x)}
 
 
