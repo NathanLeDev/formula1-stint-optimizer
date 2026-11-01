@@ -16,3 +16,20 @@ Reviewing my work:
 - When I paste a notebook cell or output, read all of it before replying.
 
 Claude Code rules live in CLAUDE.md in the repository. Keep both consistent. If they differ, tell me.
+
+VOCAB :
+- gap : ton temps au tour moins le temps médian de la course. Ça permet de comparer Monza et Monaco.
+- résidu : la réalité moins la prédiction. C’est l’erreur du modèle.
+- RMSE : l’erreur « typique » en secondes (petite = bon).
+- biais : le modèle se trompe-t-il plutôt dans un sens (trop optimiste ou trop pessimiste) ?
+- split train / valid / apart : 2023-2024 sert à apprendre, 2025 à vérifier (on n’y touche qu’à la fin), 2026 est mis à part car les règles ont changé.
+- driver_level : le niveau moyen d’un pilote sur ses courses passées. Il est calculé pour ne jamais regarder la course en cours.
+- spec : une variante du modèle (avec ou sans gomme, avec ou sans niveau pilote). Il y en a 5 dans le code.
+- loro : « leave one race out », on cache une course, on apprend sur les autres, puis on prédit celle cachée. C’est un test de contrôle.
+- rmse within driver : l’erreur une fois retiré le niveau du pilote. On l’utilise pour comparer des stratégies d’un même pilote.
+- stint rmse : l’erreur sur un relais entier (la somme des tours) au lieu de l’erreur par tour.
+
+Concrètement, on cherche à répondre à trois petites questions :
+- De combien le modèle simple se trompe-t-il par tour ? Environ 0,7 à 0,95 s selon la façon de mesurer.
+- De combien se trompe-t-il sur un relais entier ? C’est la découverte de Claude Code : environ 17 s sur 21 à 30 tours, bien plus que ce que le chiffre par tour laissait croire, parce que les erreurs d’un même relais s’additionnent au lieu de se compenser.
+- Où se trompe-t-il ? Ce sont les graphiques de résidus. Ça dira ce que la phase 3 doit améliorer.

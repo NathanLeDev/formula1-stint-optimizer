@@ -48,3 +48,5 @@ or practice.
 - Should the exported pit loss follow the 2023-2025 window like the slope?
 - Hierarchical model that borrows strength across circuits for thin circuits?
 - Which uncertainty method for the simulator inputs?
+
+With only one slope per circuit, the best strategy can almost be calculated by hand. The model and the simulator will therefore need to account for what the formula cannot (nonlinear tire wear, safety cars, uncertainty). That is what will give the project its value.
