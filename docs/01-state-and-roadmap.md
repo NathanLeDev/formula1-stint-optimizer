@@ -1,8 +1,10 @@
 # formula1-stint-optimizer — state and roadmap
 
-Last updated: 2026-10-31. Repo: https://github.com/NathanLeDev/formula1-stint-optimizer (public).
-Written from the working sessions of 2026-10-27 to 2026-10-30 and a read of the repo on 2026-10-31 (HEAD 0d51a3e,
+Last updated: 2026-11-01. Repo: https://github.com/NathanLeDev/formula1-stint-optimizer (public).
+Written from the working sessions of 2026-10-27 to 2026-11-01 and a read of the repo on 2026-10-31 (HEAD 0d51a3e,
 dated 2026-10-27 16:42). Check the repo for anything newer.
+The step 2 work of 2026-11-01 (sections 6-9 of `02-baseline.ipynb`, the stint metrics in `baseline.py`) is **not
+committed** at the time of writing.
 
 ## Goal
 Predictive race strategy: model lap time as a function of tyre age, fuel and conditions, then simulate
@@ -23,8 +25,10 @@ pit-stop windows to find the strategy with the lowest predicted race time. Portf
 - `app/f1data.py` — the single place for loading and cleaning: cached client `get()`, `load_raw()`,
   `neutral_laps()`, `dry_keys()`, `clean_laps()`, `attach_stints()`, `attach_weather()`, `attach_traffic()`,
   `build_base()`, `race_stints()`, and for phase 2 `add_target()` / `check_target()`.
+- `app/baseline.py` — phase 2 modelling: `split()`, `add_features()`, `fit()` / `predict()`, `residuals()`,
+  `stints()` / `stint_sums()` / `stint_table()`, `evaluate()`, `compare()`, `loro()`, `plot_residuals()`.
 - `app/data-viz.ipynb` — phase 1 (to be renamed `01-data-viz.ipynb`).
-- `app/02-baseline.ipynb` — phase 2, started: sections 1-5 done (see below).
+- `app/02-baseline.ipynb` — phase 2: sections 1-9 done (see below).
 - `.gitignore` covers `app/data/` and `*.csv` (cache and generated tables); `README.md` has the key result, layout and phase 2 note.
 - No tests in the repo yet.
 - **Not yet pushed at the time of the read**: the phase 1 notebook updates of 28-30 Oct (offsets read at age 10, test 3 on the same
@@ -37,7 +41,9 @@ pit-stop windows to find the strategy with the lowest predicted race time. Portf
 One module does all the cleaning (pit stops, red flags, shared boundary laps); notebooks only import it.
 Done when: one function returns the clean-lap table, and the tests pass.
 Status: `f1data.build_base()` is that function and the phase 1 numbers were checked identical after the move. **No automated tests yet**:
-write a few on synthetic frames (shared lap kept once, neutralised laps removed, target median zero per race).
+write a few on synthetic frames (shared lap kept once, neutralised laps removed, target median zero per race). Phase 2 adds three
+functions that need the same treatment: `baseline.add_features()` (the `.shift()` in `driver_level` — if it slips, the future leaks and
+every model improves silently), `baseline.stints()` (the hole-free flag) and `baseline.stint_sums()`.
 
 ### 1. Understand the data — done, clean-up pending
 Four plots only: quality per race (which to exclude); fuel-corrected degradation, one circuit at a time, per compound;
@@ -45,6 +51,7 @@ pit stop loss per circuit; strategies actually played (compound and stint length
 Done when: for 2-3 circuits you can state the degradation per compound, the pit loss and the observed stint lengths.
 Status: done in `data-viz.ipynb`, with a reference table per circuit and three race profiles. Reference numbers (use as non-regression checks):
 - 77 races fitted, 62 in training (2023-2025), 2026 held apart; 3 756 stints, 1 735 measured pit stops.
+  (Phase 2 counts **3 763** stints on the same table. The 7-stint difference is not explained.)
 - Median fitted slope per season: 0.053 (2023), 0.051 (2024), 0.039 (2025), 0.025 (2026).
 - Published slope on 23 of 25 circuits (>= 2 training races), from 0.024 s/lap (Melbourne, Montreal) to 0.121 (Sakhir); dispersion measured on
   15 circuits (>= 3 races), calendar-wide fallback 0.015.
@@ -62,12 +69,14 @@ Clean-up items seen at the last review (2026-10-30), check whether they are done
 4. Section 8 text (raw text, "57laps"), a garbled sentence in section 9, "0.055" stale in Findings, and the section 10 explanation cell
    still says 2023-2026 and "panels mix seasons".
 
-### 2. Target, variables, reference — in progress (`02-baseline.ipynb`)
-Original plan: normalised target (gap to the race's reference pace, not raw seconds: circuits run from 70 to 105 s); variables tyre age,
+### 2. Target, variables, reference — done (`02-baseline.ipynb`, sections 1-9)
+Original plan: normalised target (gap to the race's reference pace, not raw seconds: circuits run from 71 s (Spielberg) to 111 s (Spa-Francorchamps)); variables tyre age,
 compound, fuel, track temperature, circuit, driver/team level; split by race and year (2023-2024 train, 2025 validate, never by lap; 2026 apart);
 reference = a simple regression.
-**Update to the plan**: the reference regression is **one slope per circuit plus a compound offset**, not a slope per compound and circuit
-(phase 1 showed a slope per compound does not predict held-out races better).
+**Update to the plan (2026-10-31)**: the reference regression is one slope per circuit plus a compound offset, not a slope per compound and
+circuit (phase 1 showed a slope per compound does not predict held-out races better).
+**Revised 2026-11-01 — this reopens the line above**: section 8 measured that the compound **offset** earns nothing either, so the reference
+is **`circuit` alone** (a constant, a fuel slope and a tyre slope per circuit). See `docs/02-decisions-log.md`.
 Done in the notebook (executed, no error):
 - `load_raw()` + `build_base()`: 73 343 laps, 77 races, 25 circuits, 4 seasons; `track_temp` on 100 % of laps, `traffic` on 94.5 %.
 - Target chosen: **`gap` = lap time minus the median clean lap of the same race, in seconds**, added once by `f1data.add_target()` on the whole
@@ -80,24 +89,110 @@ Done in the notebook (executed, no error):
 - Seconds versus relative scale: spread of the gap per circuit 0.94 to 2.10 s (x2.25) against 1.13 to 2.11 % of a lap (x1.87); lap length explains 21 %
   of the spread (corr +0.46, relative: -0.20). Relative scale does not tidy the range, so **seconds stay**.
 
-To do next in step 2:
-- **Split**: train 2023-2024, validate 2025, 2026 apart. Choose features by leave-one-race-out inside 2023-2024 and read 2025 once at the end.
-- **Model ladder** (each rung must lower the validation error): M0 circuit median, M1 + fuel (fraction of race), M2 + tyre age with one slope per
-  circuit, M3 + compound offset, M4 + track temperature, M5 + team/driver level estimated on **past** races only.
-- **Metrics**: RMSE and MAE per lap, bias, and the **error on the sum of a whole stint** by length bracket (the simulator adds laps).
-- **Residual plots**: by tyre age, race fraction, compound, circuit, season, driver/team, track temperature, traffic, mean residual per race,
-  lag-1 autocorrelation inside a stint; variance split between races, drivers and within stints.
-- Traffic and dirty-air columns explain residuals but **cannot be inputs of the simulator** (they depend on other cars).
-- Report the driver level two ways (estimated on past races = honest; refitted on the test race = optimistic, like the 0.703 of phase 1).
-- Limit to state: the median of a race is not known before the race, so the numbers rank models and strategies, they do not forecast an
-  absolute lap time.
-Done when: the baseline error is known per lap and per 20-lap stint, and the residual plots show where it fails.
+Established in sections 6-9 (executed from a fresh kernel; 14/14 code cells reproduce identical outputs). Use as non-regression checks.
+
+**Variables** (`baseline.add_features`, computed on the whole table **before** the split):
+- `race_frac` = lap number / highest lap number of that race in the raw table.
+- `driver_level` = sum of the driver's mean gap over at most his 5 previous races / (that count + 3); range -0.989 to +1.922 s; 2.2 % of
+  (race, driver) still at the no-history default. Four checks hold: constant inside a (race, driver); exactly 0 on each driver's first race
+  (33/33); a brute-force recomputation from past races only matches to 4e-16 over 1 516 (race, driver); and it correlates **more** with the
+  driver's previous race (+0.861) than with the race it is attached to (+0.769), which is the signature of no look-ahead.
+
+**Split** (`baseline.split`, by whole race and season): train 2023-2024 38 785 laps / 41 races / 24 circuits; valid 2025 20 349 / 21 / 21;
+apart 2026 14 209 / 15 / 15. No race in two samples, no lap lost. `Madring` (2026) is never trained (7.0 % of the 2026 laps).
+- **Only 17 of 24 training circuits clear `MIN_TRAIN_RACES` = 2**, so `own coef` is 0.815 on train, **0.692 on valid 2025** and 0.671 on 2026:
+  nearly a third of the validation is predicted by the calendar-wide fallback. Cause: Interlagos 2024, Monte Carlo 2023, Montreal 2024,
+  Silverstone 2024 and Zandvoort 2023 were excluded as wet, Shanghai was not held in 2023, and Imola 2023 carries no lap data (consistent with
+  its cancellation; not verified outside this data). Section 9 then measured that the fallback is **not** where the circuit error comes from
+  (mean absolute residual 0.205 s with own coefficients against 0.242 s on the fallback, six circuits).
+
+**Reference errors**, fitted on 2023-2024. Cells are `rmse` / `rmse within driver` / `stint rmse`, in seconds:
+
+| spec | train 2023-24 | valid 2025 | apart 2026 |
+|---|---|---|---|
+| `zero` | 1.241 / 1.043 / 20.72 | 1.199 / 1.010 / 21.70 | 1.605 / 1.043 / 26.28 |
+| `circuit` | 0.914 / 0.650 / 14.63 | 0.948 / 0.695 / 15.43 | 1.459 / 0.843 / 23.44 |
+| `circuit + compound` | 0.903 / 0.651 / 14.36 | 0.971 / 0.714 / 16.08 | 1.493 / 0.865 / 24.23 |
+| `circuit x compound` | 0.888 / 0.651 / 13.95 | 0.960 / 0.712 / 15.72 | 1.482 / 0.862 / 23.69 |
+| `circuit + driver level` | 0.768 / 0.650 / 9.69 | 0.832 / 0.695 / 11.71 | 1.108 / 0.843 / 14.88 |
+
+- No compound term shows a measurable gain on 2025. One split and no interval, so this is "no gain measured", not "worse".
+- `circuit + driver level` lowers `rmse` and `stint rmse` but leaves `rmse within driver` at 0.695, identical to `circuit`: it buys nothing for
+  ranking strategies of one driver in one race, which is the simulator's case. What it does show is that much of the **stint** error is a
+  constant offset per driver rather than anything about tyres.
+- `bias` on train is within 0.006 s of zero for the three fitted single-stage specs; it is -0.059 s for `circuit + driver level`, because
+  `fit()` estimates `level_beta` in a second pass on the residuals instead of jointly. That spec is not the least-squares solution of its own
+  design matrix and its coefficients should not be read as such.
+
+**Stint-sum error** (`circuit`, valid 2025; hole-free stints of >= 2 clean laps, 847 of 988):
+
+| bracket | stints | mean laps | rmse | bias | rmse/sqrt(n) | rmse/n |
+|---|---|---|---|---|---|---|
+| 1-10 | 154 | 6.4 | 5.02 | -0.34 | 1.98 | 0.782 |
+| 11-20 | 275 | 15.9 | 11.25 | -1.06 | 2.82 | 0.707 |
+| 21-30 | 281 | 24.6 | 16.35 | -2.21 | 3.30 | 0.665 |
+| 31+ | 137 | 38.2 | 25.31 | -2.67 | 4.09 | 0.662 |
+
+**The error on a stint sum grows much closer to `n` than to `sqrt(n)`** (`rmse/sqrt(n)` x2.1 across the brackets, `rmse/n` only -15 %). A
+24.6-lap stint would cost 4.7 s on the sum if the per-lap errors were independent; it costs 16.3 s, about **3.5x** that. Measured directly in
+section 9: lag-1 autocorrelation inside a stint **+0.798** raw, **+0.533** with the stint mean removed, so the correlation is not only a
+constant offset. Consequence: a per-lap RMSE understates what a stint costs by a large factor, and the bias (-2.7 s on stints over 30 laps) is
+systematic, so it does not cancel between two strategies using stints of different lengths.
+
+**Residual structure** (`circuit`, valid 2025):
+- Variance split, exact decomposition of the sum of squares: between races 6.9 %, **between drivers inside a race 39.2 %**, between stints
+  inside a driver-race 8.9 %, **between laps inside a stint 45.0 %**. The race is already known (that is what `gap` references); the driver is
+  the largest structured term.
+- Driver: the driver-race mean residual correlates +0.687 with `driver_level`; adding the term takes that to -0.039 and its standard deviation
+  from 0.664 s to 0.483 s.
+- Tyre age x compound: the residual rises with age on SOFT (-0.153 s at age 8 to +0.143 s at 22) and drifts the other way on HARD (-0.044 s at
+  age 2 to -0.153 s at 32), 0.227 s apart read at age 22. One slope per circuit sits between the two. Phase 1 showed the direct per-compound fit
+  does not pay on held-out races, so this is a structure the reference does not carry, **not** a fix known to work.
+- Circuit: -0.540 s (Suzuka) to +0.827 s (Miami), sd 0.290 s over 21 circuits. Miami is also the thinnest race in the table (409 laps, 19 drivers).
+- Season: mean residual per race within 0.040 s of zero in all four seasons; dispersion 0.154 (2023) and 0.099 (2024) on the fitted seasons
+  against 0.290 (2025) and 0.250 (2026) on the held-out ones. Not biased per season, just less certain on a season it never saw.
+- Track temperature: no monotone trend (-0.214 s at 21 C, +0.256 s at 36 C, -0.140 s at 48 C).
+- **Traffic**: mean residual +0.419 s on the 25.0 % of laps within `DIRTY_AIR` = 1 s of a car ahead, against -0.129 s in clear air, about 0.55 s
+  of spread. Traffic **cannot be an input of the simulator** (it depends on the other cars), so this is a floor on the per-lap error, and part of
+  the 45 % lap-to-lap variance above is it.
+
+**Bridge with phase 1 — not closed.** `baseline.loro()` replays the phase 1 protocol on `gap`:
+
+| sample | circuits with >= 2 races | laps covered | no tyre term | one slope | phase 1 |
+|---|---|---|---|---|---|
+| all races | 24/25 | 98.6 % | 0.791 | 0.729 | 0.771 / 0.703 |
+| 2023-2025 | 23/24 | 98.7 % | 0.773 | 0.717 | 0.756 / 0.683 |
+| train 2023-24 | 17/24 | 81.5 % | 0.778 | 0.696 | not measured |
+
+The **gain** from the tyre term reproduces (0.062 s against phase 1's 0.068 s) but the **level** sits 0.026 to 0.034 s above phase 1, in the same
+direction both times. **Unexplained.** Candidates, none checked: the target here is `gap` where phase 1 fitted a fuel-corrected lap time;
+`loro()` applies no minimum laps per compound; the race sets may differ (77 here, 76 quoted). Until it closes, any comparison between a phase 1
+figure and a phase 2 figure carries about 0.03 s of extra uncertainty on top of everything else.
+
+**Deviations from the plan, to know before using these numbers:**
+1. **2025 was used to choose, not only to confirm.** `loro()` fits a fixed layout and cannot rank the five specs, so the ranking above is read on
+   the validation. The error of whichever spec wins is optimistic by an amount the notebook does not measure. The 2026 column is the only one
+   never used for anything, and it is the honest one.
+2. **The ladder was not built as M0-M5.** `baseline.SPECS` has five rungs, but `lap_number` (fuel) and `age` (tyre) always enter together, so M1
+   and M2 are not separable, and there is **no `track_temp` rung** (M4). Decided: if one is added it will be judged by `loro()` on 2023-2024,
+   never on the 2025 residual panel.
+3. **The driver level is reported one way only** (estimated on past races = honest). The optimistic variant refitted on the test race, which the
+   plan asked for beside it, is not done.
+4. Limit unchanged: the median of a race is not known before the race, so these numbers rank models and strategies, they do not forecast an
+   absolute lap time.
+
+Done when (met): the baseline error is known per lap and per stint bracket, and the residual plots show where it fails.
+Still open: the automated tests of step 0, and deviation 3 above.
 
 ### 3. XGBoost / Random Forest — not started
 To check: the predicted time must increase with tyre age (partial dependence on age); otherwise the model learned something else (team speed,
 for example). XGBoost can enforce this with a monotonic constraint on age — an option to try and to compare.
 To compare: the error on the degradation slope matters more than the mean error per lap; use the same validation races as the baseline and the
-stint-sum error.
+stint-sum error. **To beat on valid 2025** (`rmse` / `rmse within driver` / `stint rmse`): `circuit` 0.948 / 0.695 / 15.43, and
+`circuit + driver level` 0.832 / 0.695 / 11.71. Judge it on `rmse within driver` and on the stint brackets, not on the raw RMSE, since the
+simulator ranks strategies for one driver in one race.
+Interface note before starting: `baseline.evaluate()` takes a model dict and calls `baseline.predict()`, so scoring a tree model means either
+giving it that interface or changing `residuals()` / `evaluate()` to take a vector of predictions. Decide which, once.
 Done when: it beats the baseline on races never seen, with coherent curves. If it does not beat it, that is a valid result: write it down.
 Do not expect a compound effect from it: compound information is unreliable in this data (phase 1, section 11).
 

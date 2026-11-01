@@ -422,7 +422,9 @@ def add_target(base, min_laps=TARGET_MIN_LAPS, min_drivers=TARGET_MIN_DRIVERS):
     The threshold is a guard on the median itself, not a quality filter on the
     laps: a race shortened by a red flag or one that only half the field
     finished cannot fix a reliable centre. It excludes nothing on the 2023-2026
-    table, where the thinnest race still carries 409 clean laps and 16 drivers.
+    table: the race with the fewest clean laps still carries 409 of them (Miami
+    2025, 19 drivers), and no race falls below 16 drivers (Monte Carlo 2024,
+    1 051 laps).
     """
     g = base.groupby("session_key")
     report = pd.DataFrame({"circuit": g["circuit"].first(), "year": g["year"].first(),

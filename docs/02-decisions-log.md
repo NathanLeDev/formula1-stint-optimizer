@@ -72,6 +72,44 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
   and do not forecast absolute lap times.
 - Race eligibility guard: >= 200 clean laps and >= 12 drivers (excludes nothing on 2023-2026).
 
+## Phase 2: variables, split, reference and metrics
+- **Variables are computed on the whole table, before the split** (`baseline.add_features`). `driver_level` reads only races that precede a lap
+  in date order, so the whole table carries no more information than a race already had at its start. Computed after the split, a driver in an
+  early 2025 race would lose his 2024 history and the variable would not mean the same thing in the two samples.
+- **`driver_level` is deliberately shrunk** and is not an unbiased level: the sum of the mean gap over at most 5 previous races, divided by
+  (that count + 3), so a full window keeps 5/8 of the measured mean and a single race keeps 1/4. `fit()` estimates `level_beta` on it, so the
+  shrinkage decides how much a short history is trusted, not the size of the effect.
+- **Split by whole race and season, never by lap.** Two laps of the same race share the `ref_pace` that defines their target, so a lap-level
+  split would put part of a race's median in training and the rest in validation, and the error would come out too low for a reason unrelated
+  to the model.
+- **2026 is apart, not in the validation.** New regulations (median slope 0.025 s/lap against 0.051 in 2024), so it is kept out of both the fit
+  and the model choice, and read as how far the reference travels rather than as a target to tune on.
+- **The reference is `circuit` alone** (2026-11-01). **This revises the 2026-10-31 decision "one slope per circuit plus a compound offset"**: on
+  valid 2025 the offset shows no measurable gain (0.971 s against 0.948 s rmse, and higher on every other metric), and neither does a fit per
+  (circuit, compound) cell (0.960 s). One split with no interval attached, so the claim is "no gain measured", not "worse". What would change
+  it: an interval on the difference, or a method that borrows the compound slope across circuits.
+- **Two errors per lap, and one per stint.** `rmse` is the raw error. `rmse within driver` removes the mean of each (race, driver) and is both
+  the one comparable with phase 1 and the one that matters for the simulator, where a driver's level is a constant. `mae` sits beside the RMSE
+  because the two part company when a few large errors dominate.
+- **The stint-sum error is measured on hole-free stints of at least 2 clean laps**, in brackets 1-10 / 11-20 / 21-30 / 31+. Only 1 stint in
+  3 763 keeps every lap it ran (the cleaning removes the pit-out lap, the pit-in lap and lap 1), so "the sum of a whole stint" is not available;
+  83.6 % have their clean laps consecutive, which is what the simulator adds. A stint with a hole inside it is left out rather than summed
+  across the hole, and a one-lap "sum" is already covered by the per-lap RMSE. Cost: the 16.4 % left out skew long, so this is a selection and
+  is stated as one. Brackets are on the clean consecutive laps, not on the nominal stint length.
+- **`loro()` has two separate uses.** On the whole table it is the only version comparable with phase 1's 0.703 s; restricted to 2023-2024 it
+  would not compare at all. On 2023-2024 alone it is the only version that may decide a variable, since deciding on the whole table means
+  deciding on 2025 and 2026. On 2023-2024 it covers only 17 of 24 circuits (81.5 % of the laps), so it is a weaker arbiter here than in phase 1.
+- **The phase 2 replay does not reproduce phase 1's 0.703 s**: it gives 0.729 s on the same race set, and 0.717 s against 0.683 s on 2023-2025.
+  Recorded as open, not resolved by adjusting either number. See `docs/01-state-and-roadmap.md` for the candidate causes.
+- **Known deviation: 2025 was used to choose, not only to confirm.** `loro()` fits a fixed layout and cannot rank the five specs, so the ranking
+  comes from the validation. Recorded rather than fixed; the 2026 column is the honest one.
+- **`circuit + driver level` is a two-stage fit**, which is why its training bias is -0.059 s instead of ~0: `level_beta` is estimated on the
+  residuals of the other coefficients, not jointly with them. Its coefficients are not least-squares estimates of its own design matrix. What
+  would change it: one joint `lstsq` with the level as a column.
+- **Traffic is measured, never used as an input.** Mean residual +0.419 s on the 25 % of laps within 1 s of a car ahead against -0.129 s in
+  clear air. It depends on the other cars, so it sets a floor on the per-lap error rather than offering a variable; phase 3 is to be judged on
+  the error it reaches despite it, not against an error that pretends traffic is knowable.
+
 ## Strategy arithmetic
 - With equal stints, the extra time of k stops over a race of L laps is
   `k x pit + slope x L x (L/(k+1) - 1) / 2`; take the minimum over k >= 1 (two-compound rule).
