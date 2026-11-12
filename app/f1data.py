@@ -172,27 +172,76 @@ def by_session(endpoint, session_keys):
     return _concat([f for f in frames if not f.empty])
 
 
+def _missing(frame, session_keys):
+    """The session keys `frame` carries no row for."""
+    have = set() if frame.empty else set(frame["session_key"].unique())
+    return [int(k) for k in session_keys if int(k) not in have]
+
+
+def _top_up(endpoint, frame, session_keys):
+    """Complete a range request with the races it does not carry, one request each.
+
+    The cache key of a range request is built from the whole calendar, future
+    sessions included, so it does not change when a race is run: the parquet
+    stays frozen at the day it was first downloaded and a race held after that
+    never enters the frame. `laps` is fetched per race and keeps arriving, so
+    such a race reaches `build_base()` with laps and no stints, and the inner
+    merge of `attach_stints()` drops it without a word — the table stops growing
+    and says nothing.
+
+    Only the missing races are fetched. Re-downloading four seasons would also
+    pull in any revision OpenF1 made upstream, and a reference number would then
+    move for a reason nobody could name afterwards.
+    """
+    missing = _missing(frame, session_keys)
+    if not missing:
+        return frame
+    added = _concat([f for f in (get(endpoint, session_key=k) for k in missing)
+                     if not f.empty])
+    return frame if added.empty else _concat([frame, added])
+
+
 def load_raw(seasons=SEASONS, traffic=True, verbose=True):
     """Every endpoint the analysis needs. The first run downloads, later runs read the cache.
 
     `laps` and `intervals` go one request per race; the rest fit in a single
-    `session_key` range per endpoint. `intervals` is the heavy one (~25k rows a
+    `session_key` range per endpoint, then `_top_up()` adds the races that range
+    was cached too early to carry. `intervals` is the heavy one (~25k rows a
     race, a few minutes on the first run): pass traffic=False to skip it.
+
+    A race with no lap is completed by nothing: it cannot enter `build_base()`,
+    so there is nothing to complete it for, and asking for it on every run would
+    cost a request per endpoint for a race that will never be in the table.
+    `verbose` names the races an endpoint still has no row for, so a hole is
+    read rather than guessed at.
     """
     sessions = load_sessions(seasons)
     races = held_races(sessions)
     region = key_region(sessions)
 
-    frames = {ep: get(ep, **region) for ep in ENDPOINTS}
-    raw = Raw(sessions=sessions, races=races,
-              laps=by_session("laps", races["session_key"]),
-              intervals=by_session("intervals", races["session_key"]) if traffic
+    laps = by_session("laps", races["session_key"])
+    have_laps = set() if laps.empty else set(laps["session_key"].unique())
+    with_laps = [int(k) for k in races["session_key"] if int(k) in have_laps]
+
+    frames = {ep: _top_up(ep, get(ep, **region), with_laps) for ep in ENDPOINTS}
+    raw = Raw(sessions=sessions, races=races, laps=laps,
+              intervals=by_session("intervals", with_laps) if traffic
               else pd.DataFrame(),
               **frames)
     if verbose:
         print(f"{len(races)} races held over {min(seasons)}-{max(seasons)}")
+        label = races.set_index("session_key")
+        label = label["circuit_short_name"] + " " + label["date_start"].dt.year.astype(str)
         for name in ["laps", "stints", "pit", "weather", "race_control", "intervals"]:
-            print(f"  {name:13s} {getattr(raw, name).shape}")
+            frame = getattr(raw, name)
+            gap = _missing(frame, races["session_key"])
+            if frame.empty:
+                note = "  not loaded"
+            elif gap:
+                note = "  no row for: " + ", ".join(label.get(k, str(k)) for k in gap)
+            else:
+                note = ""
+            print(f"  {name:13s} {frame.shape}{note}")
     return raw
 
 

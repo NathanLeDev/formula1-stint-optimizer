@@ -4,6 +4,8 @@ What this module does, in the order of the roadmap:
 
 1. `split()`           2023-2024 to fit, 2025 to validate, 2026 apart. Always by race.
 2. `add_features()`    `race_frac` and `driver_level`, both computed without looking ahead.
+                       `race_fraction()` holds the `race_frac` formula on its own, so a cell
+                       that needs it before the features are added reads the same code.
 3. `fit()` / `predict()` the reference: a plain least-squares regression of `gap` on the
                        fuel (lap number) and the tyre age, per circuit, optionally per compound.
 4. `evaluate()`        the per-lap errors and the per-stint error (see below).
@@ -23,7 +25,9 @@ driver's race, with his level and the level of the race given for free.
 - `stint rmse`         error on the **sum** of a stint, over the stints whose clean laps are
                        consecutive and number at least STINT_MIN_LAPS. This is the one the
                        simulator inherits, since it adds laps; `stint_table()` splits it by
-                       length bracket. Only 1 stint in 3 763 keeps all the laps it ran, so this
+                       length bracket, and `within=True` reports it after the mean of each
+                       (race, driver) is removed, i.e. the part that survives a comparison
+                       between two strategies of the same driver in the same race. Only 1 stint in 3 763 keeps all the laps it ran, so this
                        is the sum of the clean laps of a stint, not of the stint as driven.
 
 `driver_level` is the mean gap of the driver over his previous LEVEL_WINDOW races, shrunk towards 0
@@ -67,16 +71,27 @@ def split(base):
 
 # 2. Variables -----------------------------------------------------------------
 
+def race_fraction(laps, raw):
+    """Where in the race each lap falls: lap number / the distance of its race, as a Series.
+
+    The distance is the highest lap number of the race in `raw.laps`, not in the cleaned table:
+    the cleaning removes laps and the last lap of a race is often one of them. Kept as its own
+    function so a cell needing the fraction before `add_features()` runs reads this formula
+    instead of writing it again.
+    """
+    distance = raw.laps.groupby("session_key")["lap_number"].max()
+    return laps["lap_number"] / laps["session_key"].map(distance)
+
+
 def add_features(base, raw):
-    """Adds `race_frac` (lap / distance of the race) and `driver_level`.
+    """Adds `race_frac` (lap / distance of the race, from `race_fraction()`) and `driver_level`.
 
     `driver_level` for a driver in a race is the sum of his mean gap over his previous races
     (at most LEVEL_WINDOW, date order) divided by (number of those races + LEVEL_SHRINK).
     A driver with no history gets 0.
     """
     out = base.reset_index(drop=True).copy()
-    distance = raw.laps.groupby("session_key")["lap_number"].max()
-    out["race_frac"] = out["lap_number"] / out["session_key"].map(distance)
+    out["race_frac"] = race_fraction(out, raw)
 
     date = raw.races.set_index("session_key")["date_start"]
     dm = (out.groupby(["session_key", "driver_number"])["gap"].mean().rename("gap_mean")
@@ -193,17 +208,27 @@ def stints(x):
     return st
 
 
-def stint_sums(model, x):
+def stint_sums(model, x, within=False):
     """Error on the sum of a stint, one row per eligible stint.
 
     `error` = sum of the residuals over the stint = (sum of the actual gaps) - (sum of the
     predicted gaps). It is the quantity the simulator accumulates when it adds laps, and it is
     not recoverable from the per-lap RMSE: residuals inside a stint are correlated, so they do
     not cancel the way independent errors would.
+
+    `within=True` removes the mean residual of each (race, driver) from every lap before the sum,
+    the same grouping as `rmse within driver`. What is left is the part that does **not** cancel
+    when two strategies of one driver in one race are compared, which is what the simulator does:
+    a level that is constant over his race drops out of the comparison. Read it knowing that the
+    centred residuals of a (race, driver) sum to zero over his laps, so an error on his long stint
+    is mirrored across his short ones; the brackets then say how the error is distributed over
+    stint lengths, not what one stint costs in absolute terms.
     """
     st = stints(x)
     ok = st[st["hole_free"] & (st["laps"] >= STINT_MIN_LAPS)]
     r = residuals(model, x)
+    if within:
+        r = r - r.groupby([x["session_key"], x["driver_number"]]).transform("mean")
     per = pd.DataFrame({k: x[k] for k in STINT_KEY})
     per["error"] = r
     per = per.groupby(STINT_KEY, as_index=False)["error"].sum()
@@ -212,7 +237,7 @@ def stint_sums(model, x):
     return out
 
 
-def stint_table(model, x):
+def stint_table(model, x, within=False):
     """The stint-sum error by length bracket, with the two scalings that separate the regimes.
 
     If the residuals inside a stint were independent, the error on the sum would grow as
@@ -221,7 +246,7 @@ def stint_table(model, x):
     columns says which regime the reference is in, and that is what decides how far a simulated
     stint can be trusted.
     """
-    s = stint_sums(model, x)
+    s = stint_sums(model, x, within=within)
     rows = []
     for bracket, d in s.groupby("bracket", observed=True):
         n = float(d["laps"].mean())

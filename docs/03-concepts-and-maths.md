@@ -41,6 +41,22 @@ Lap time falls as fuel burns. Illustration (assumed, not measured): 110 kg / 56 
 is not "the effect of fuel". Section 8 correction: `adjusted = lap time - BURN x (laps remaining)` puts every lap at the
 end-of-race fuel level; the section 10 gap uses the median lap of the race as the fuel level instead.
 
+**Three figures circulate, and they are three different quantities.** Only the order of magnitude, **0.04 to 0.06 s/lap**,
+is common to them; quoting one where another belongs is a mistake, not a rounding.
+- **0.058 s/lap** - assumed, not measured: the mass calculation above. Fuel only, no track evolution, no wear.
+- **-0.057 s/lap** - phase 1's fitted coefficient on lap number, with tyre age in the same model (median over the races).
+  Fuel **and** track evolution; wear is held out by the age term.
+- **-0.0445 s/lap** - the raw slope of `gap` on lap number with no age term (`02-baseline.ipynb` section 4). The same thing
+  **minus** the share of tyre wear that rides on lap number, so it lands closer to zero.
+
+The last two are one measurement read two ways, tied by the omitted-variable identity, **exact race by race**:
+`raw slope = fuel coefficient + (age coefficient) x (slope of age on lap number)`.
+Tyre age grows with the lap number and wear slows a lap while fuel speeds it up, so dropping the age term nets the two.
+Medians on the phase 2 table: raw -0.0445, fuel -0.0557, age +0.0476, age-on-lap +0.2904. Medians are **not** additive, so
+those four do not satisfy the identity as written - it holds per race, and section 4 of `02-baseline.ipynb` prints its
+maximum error over the 77 races (2e-16). A stale "0.055" in the phase 1 Findings refers to the assumed 0.058, not to any
+measurement (see the clean-up list in `docs/01-state-and-roadmap.md`).
+
 ## 6. The section 10 gap (normalised lap time)
 `gap = lap time - median lap of the race - fuel x (lap number - median lap number)`. With fuel = -0.061 (Monza), a lap 10 in a
 race whose median lap is lap 28 gets -(-0.061) x (10 - 28) = -1.1 s: it carried more fuel, so it is made faster.
