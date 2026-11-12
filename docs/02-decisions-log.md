@@ -63,10 +63,17 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
 - **Not the driver's own median**: a one-stopper and a two-stopper do not run the same average tyre age, so the target would move
   with the strategy the simulator scores. Twenty drivers absorb that.
 - **Not the median of the same lap across the field**: it removes fuel, weather and restarts, which are what the model has to learn.
-- **Seconds, not a ratio**: pit loss and slope are in seconds and the simulator adds them. Checked: spread of the gap per circuit
-  0.94-2.10 s (x2.25) vs 1.13-2.11 % of a lap (x1.87); lap length explains 21 % of the spread; the relative scale does not tidy the range.
-- **One constant per race, computed once on the full table, stored in `ref_pace`.** Recomputed on a subset (tyre age <= 15 laps) it moves by up
-  to 1.25 s, more than the error to beat. `check_target()` asserts median gap 0 per race and no missing values.
+- **Seconds, not a ratio**: pit loss and slope are in seconds and the simulator adds them. Checked on **2023-2025 only**, since 2026 is a different
+  formula: 24 circuits, spread of the gap per circuit 0.91-1.74 s (x1.90) vs 1.13-2.22 % of a lap (x1.97); lap length explains 18 % of the spread
+  (corr +0.43); the relative scale makes the range **wider**, not tighter, and turns the correlation negative (-0.30), i.e. overcorrects. The spans are
+  identical on the 23 circuits with >= 2 races, so the verdict rests on no single-race circuit. What would change it: a future circuit both long and
+  wide. (The earlier x2.25 / x1.87 / 21 % figures came from 2023-2026, with the ranges and the correlations computed on different circuit sets.)
+- **One constant per race, computed once on the full table, stored in `ref_pace`.** Recomputed on a subset the reference moves by up to 1.25 s
+  (tyre age <= 15 laps). That shift is **not** an error of the same size: the two add roughly in quadrature, and re-fitting on that target costs
+  +0.095 s of raw RMSE and +2.80 s of stint error on 2025 — real, and more than the +0.068 s the whole tyre term was worth in phase 1, but not the
+  ~18x the raw 1.25 s would suggest. On the laps whose traffic is known the same exercise costs nothing measurable (-0.0002 s). And `rmse within
+  driver` is immune by construction: a shift constant inside a race cancels when the mean of each (race, driver) is removed. So the rule protects the
+  raw error and the stint error, the two the simulator inherits. `check_target()` asserts median gap 0 per race and no missing values.
 - **What the target keeps and removes**: keeps fuel, driver and team level, tyre age, compound, weather; removes the level of the race itself
   (that season's car, the track state that day). Consequence: the median is not known before the race, so results rank models and strategies
   and do not forecast absolute lap times.

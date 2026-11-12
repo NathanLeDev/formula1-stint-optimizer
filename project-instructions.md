@@ -20,13 +20,13 @@ Claude Code rules live in CLAUDE.md in the repository. Keep both consistent. If 
 VOCAB :
 - gap : ton temps au tour moins le temps médian de la course. Ça permet de comparer Monza et Monaco.
 - résidu : la réalité moins la prédiction. C’est l’erreur du modèle.
-- RMSE : l’erreur « typique » en secondes (petite = bon).
+- RMSE : l’erreur « typique » en secondes (petite = bon). La rmse brute mesure deux choses : « le pilote est-il globalement plus rapide ou plus lent que prévu » et « les tours varient-ils comme prévu ».
 - biais : le modèle se trompe-t-il plutôt dans un sens (trop optimiste ou trop pessimiste) ?
 - split train / valid / apart : 2023-2024 sert à apprendre, 2025 à vérifier (on n’y touche qu’à la fin), 2026 est mis à part car les règles ont changé.
 - driver_level : le niveau moyen d’un pilote sur ses courses passées. Il est calculé pour ne jamais regarder la course en cours.
 - spec : une variante du modèle (avec ou sans gomme, avec ou sans niveau pilote). Il y en a 5 dans le code.
 - loro : « leave one race out », on cache une course, on apprend sur les autres, puis on prédit celle cachée. C’est un test de contrôle.
-- rmse within driver : l’erreur une fois retiré le niveau du pilote. On l’utilise pour comparer des stratégies d’un même pilote.
+- rmse within driver : l’erreur une fois retiré le niveau du pilote. On l’utilise pour comparer des stratégies d’un même pilote. rmse within driver ne garde que la seconde. Elle ignore le niveau global du pilote. Le niveau pilote ne corrige que la première, donc il ne change que la rmse brute.
 - stint rmse : l’erreur sur un relais entier (la somme des tours) au lieu de l’erreur par tour.
 
 Concrètement, on cherche à répondre à trois petites questions :

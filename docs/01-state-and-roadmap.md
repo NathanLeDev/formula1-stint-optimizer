@@ -3,8 +3,9 @@
 Last updated: 2026-11-01. Repo: https://github.com/NathanLeDev/formula1-stint-optimizer (public).
 Written from the working sessions of 2026-10-27 to 2026-11-01 and a read of the repo on 2026-10-31 (HEAD 0d51a3e,
 dated 2026-10-27 16:42). Check the repo for anything newer.
-The step 2 work of 2026-11-01 (sections 6-9 of `02-baseline.ipynb`, the stint metrics in `baseline.py`) is **not
-committed** at the time of writing.
+The step 2 work of 2026-11-01 (sections 6-9 of `02-baseline.ipynb`, the stint metrics in `baseline.py`) is committed as
+`72a1c8f`, not yet pushed. The corrections made after it are **not committed**: the `add_target` docstring, the lap-time
+spans in sections 3 and 5, the fuel wording in section 4, and section 5 recomputed on 2023-2025.
 
 ## Goal
 Predictive race strategy: model lap time as a function of tyre age, fuel and conditions, then simulate
@@ -82,12 +83,26 @@ Done in the notebook (executed, no error):
 - Target chosen: **`gap` = lap time minus the median clean lap of the same race, in seconds**, added once by `f1data.add_target()` on the whole
   table (columns `ref_pace`, `gap`); a race needs >= 200 clean laps and >= 12 drivers (none excluded; thinnest: Miami 2025, 409 laps, 19 drivers).
   `check_target()` asserts: median gap 0 in every race, no missing value.
-- Fuel signature present (per-race slope of gap on lap number: median -0.0445 s/lap, negative in 77/77 races; mean gap +1.49 s over the first 5 %
-  of the race, -0.85 s over the last 5 %).
-- The reference must never be recomputed on a subset: redone on tyres <= 15 laps old it moves by up to 1.25 s (0.24 s on average); on clear-air laps up to
-  0.62 s; on laps with traffic known up to 0.18 s.
-- Seconds versus relative scale: spread of the gap per circuit 0.94 to 2.10 s (x2.25) against 1.13 to 2.11 % of a lap (x1.87); lap length explains 21 %
-  of the spread (corr +0.46, relative: -0.20). Relative scale does not tidy the range, so **seconds stay**.
+- Within-race trend present, and it is **not** a fuel measurement: it nets fuel burn and the improving track against tyre wear. Raw per-race slope of
+  gap on lap number: median -0.0445 s/lap, negative in 77/77 races. With tyre age in the same fit the fuel coefficient is -0.0557 s/lap (which is phase
+  1's -0.057) and the age coefficient +0.0476, positive in 71/77; the two readings are tied by `raw = fuel + age x (slope of age on lap number)`, exact
+  race by race (max error 2e-16). Mean gap +1.49 s over the first 5 % of the race, -0.85 s over the last 5 %. Three fuel figures circulate in the
+  project and only the order of magnitude, 0.04 to 0.06 s/lap, is common to them: see `docs/03-concepts-and-maths.md` section 5.
+- The reference must never be recomputed on a subset. The reference itself moves by up to 1.25 s on tyres <= 15 laps old (0.24 s on average), 0.62 s on
+  clear-air laps, 0.18 s on laps with traffic known. A shift is **not** a change in the error of the same size (the two add roughly in quadrature), so
+  section 4 now measures the error instead: it re-references the whole table, re-splits, re-fits on 2023-2024 and scores 2025. Change against the target
+  as built, `rmse` / `stint rmse`: tyres <= 15 laps **+0.095 / +2.80** (18 % of the stint error), more than the 0.068 s the tyre term was worth in phase
+  1; clear air +0.015 / -0.18; traffic known -0.0002 / +0.10, i.e. nothing measurable. `rmse within driver` moves +0.003 s at worst, because a shift that
+  is constant inside a race cancels out of it exactly. So the rule protects the **raw error and the stint error** — the two the simulator inherits — and
+  of these three subsets only the tyre-age one shifts enough to matter.
+- Seconds versus relative scale, measured on **2023-2025 only** (2026 is a different formula, and it is also the only season carrying Madring):
+  24 circuits, 59 134 laps, lap 70.8 to 111.1 s (x1.57); spread of the gap per circuit 0.91 to 1.74 s (x1.90) against 1.13 to 2.22 % of a lap (x1.97);
+  corr(lap, spread) +0.43, so lap length explains 18 % of the spread; corr(lap, relative spread) -0.30. On the 23 circuits with >= 2 races the spans are
+  identical and the correlation is +0.45 (r2 0.20), so the verdict rests on no single-race circuit. The relative scale makes the range **wider**
+  (x1.97 against x1.90) and turns the correlation negative, i.e. overcorrects, so **seconds stay**.
+  Superseded figures: 0.94-2.10 s (x2.25) / 1.13-2.11 % (x1.87) / 21 %, computed on 2023-2026 with the ranges excluding single-race circuits while the
+  correlations did not. Madring was the maximum of the range in seconds; removing it alone moves the correlation only from +0.460 to +0.457, so the old
+  r2 was not an artefact of it, but the ranges and the correlations were not the same sample.
 
 Established in sections 6-9 (executed from a fresh kernel; 14/14 code cells reproduce identical outputs). Use as non-regression checks.
 
