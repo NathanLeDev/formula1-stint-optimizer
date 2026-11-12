@@ -18,11 +18,11 @@ do not predict held-out races better than a single slope.
   temperature and laps since last neutralisation (temperature is already in `build_base`).
 
 ## Validation weaknesses
-- The held-out RMSE (0.703) gives each driver of the tested race a free pace level estimated on that race: comparative, not a forecast.
+- The held-out RMSE (0.714) gives each driver of the tested race a free pace level estimated on that race: comparative, not a forecast.
   Needed: the same with a driver/team level estimated on past races only.
 - Within-race standard errors (0.005 s/lap) understate uncertainty (autocorrelated laps); the between-race dispersion is the honest one.
 - The leave-one-race-out trains with 2026 races of the same circuit; only the evaluation is restricted to 2023-2025 in the 4b check.
-- Win counts (34/76, 28/62) are coin flips; report an average RMSE difference with a resampling interval.
+- Win counts (34/79, 28/62) are coin flips; report an average RMSE difference with a resampling interval.
 
 ## Data and measurement limits
 - A median stint length describes when a compound was used (strategy, safety cars, survivors), not its life. Monza soft: median 3 laps
@@ -32,8 +32,13 @@ do not predict held-out races better than a single slope.
 - Thin circuits: Madring has no training race, Silverstone one; 2026 has one race per circuit (slope 2026 is a drift signal).
 - Races with no weather rows may count as dry; check how many.
 - Pit loss and stint lengths average four seasons while the slope uses 2023-2025; 2026 pit loss is about 2 s higher.
-- The straight line cannot represent an end-of-life cliff; 40-lap stint costs are extrapolations. Check whether the gap curve bends beyond ~25 laps.
+- The straight line cannot represent an end-of-life cliff; 40-lap stint costs are extrapolations. Phase 3 (2026-11-12): XGBoost's partial
+  dependence on age is concave and **flat from age 30 on** (+1.06 s, against +1.46 s for the line at 30), no cliff. Hypothesis, untested: a
+  selection effect (only tyres that hold up are kept beyond 30 laps; 8.0 % of the training laps). Until tested, the flat part must not price
+  very long stints.
 - The fuel limit drops to 70 kg in 2026, so the fuel coefficient and slopes do not transfer to 2026.
+- **Two training windows.** The phase 1 circuit table (slopes) is fitted on 2023-2025; the phase 2 and 3 models on 2023-2024. A simulator
+  check on 2025 that uses the phase 1 slopes is not out of sample for them.
 
 ## Project-value concern
 With one linear slope per circuit and no compound information, the optimal strategy is nearly closed-form (equal stints, number of stops from the
@@ -42,6 +47,16 @@ stop-versus-wear trade-off). A learning model and a simulator must earn their pl
 possibly conformal prediction). Variables that depend on other cars (traffic, dirty air) can explain residuals but cannot feed the simulator.
 Possible extra signal: Pirelli tyre-compound numbers (C1-C5) instead of relative soft/medium/hard labels, and a pre-race pace level from qualifying
 or practice.
+
+## Phase 3 limits (2026-11-12)
+- XGBoost's gain is on the per-lap error inside a driver's race (-0.029 s on 2025, 21 races); on the sum of a stint no measurable gain on 2025,
+  and higher than `circuit + driver level` on 2026 (+1.58 s). The residual autocorrelation inside a stint is still +0.49 (stint mean removed):
+  a model of the mean lap does not remove it.
+- The slope of a single stint is predicted no better than zero by any model (definition A).
+- XGBoost learns almost one age curve for the whole calendar (0.031 to 0.044 s/lap per circuit). It is closer to the slope of an unseen race
+  than the per-circuit line, but circuit differences that are real would be lost with it.
+- One split, 21 and 18 races; intervals resample races, not the training set, the folds or the seed. Learning rate, `subsample`,
+  `min_child_weight` and the 8-lap floor of definition A are assumed.
 
 ## Open decisions
 - Should the optimizer only be fed stints long enough to be real tyre runs?

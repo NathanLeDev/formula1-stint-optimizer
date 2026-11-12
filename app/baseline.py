@@ -9,16 +9,16 @@ What this module does, in the order of the roadmap:
 3. `fit()` / `predict()` the reference: a plain least-squares regression of `gap` on the
                        fuel (lap number) and the tyre age, per circuit, optionally per compound.
 4. `evaluate()`        the per-lap errors and the per-stint error (see below).
-5. `loro()`            the Phase 1 protocol replayed on `gap`, to cross-check the 0.703 s.
+5. `loro()`            the Phase 1 protocol replayed on `gap`, to cross-check the 0.714 s.
 6. `plot_residuals()`  where the reference fails.
 
-Two errors, because Phase 1's 0.703 s is only one of them. Its residual has the mean of each
+Two errors, because Phase 1's 0.714 s is only one of them. Its residual has the mean of each
 driver in the held-out race removed before the RMSE is taken, so it measures the error inside a
 driver's race, with his level and the level of the race given for free.
 
 - `rmse`               raw error on `gap`: nothing about the held-out race is known.
 - `rmse within driver` the same residual after removing the mean of each (race, driver). This is
-                       the one that compares with 0.703, and the one that matters for ranking
+                       the one that compares with 0.714, and the one that matters for ranking
                        strategies of one driver in one race, where his level is a constant.
 - `mae`                mean absolute residual, reported next to the RMSE because the two part
                        company when a few large errors dominate.
@@ -27,7 +27,7 @@ driver's race, with his level and the level of the race given for free.
                        simulator inherits, since it adds laps; `stint_table()` splits it by
                        length bracket, and `within=True` reports it after the mean of each
                        (race, driver) is removed, i.e. the part that survives a comparison
-                       between two strategies of the same driver in the same race. Only 1 stint in 3 763 keeps all the laps it ran, so this
+                       between two strategies of the same driver in the same race. Only 1 stint in 3 911 keeps all the laps it ran, so this
                        is the sum of the clean laps of a stint, not of the stint as driven.
 
 `driver_level` is the mean gap of the driver over his previous LEVEL_WINDOW races, shrunk towards 0
@@ -156,6 +156,8 @@ def fit(train, spec):
 
 
 def predict(model, x):
+    if "predict" in model:          # a model that brings its own predictor (phase 3, `trees.py`)
+        return np.asarray(model["predict"](x), dtype=float)
     spec = model["spec"]
     if spec == "zero":
         return np.zeros(len(x))
@@ -181,7 +183,7 @@ def predict(model, x):
 
 def own_coefficients(model, x):
     """Share of the laps of `x` that sit on a circuit with coefficients of its own."""
-    if model["spec"] == "zero":
+    if model["spec"] == "zero" or "predict" in model:
         return np.nan
     return float(x["circuit"].isin(model["by"]).mean())
 
@@ -195,7 +197,7 @@ def residuals(model, x):
 def stints(x):
     """One row per stint of `x`: its clean laps, and whether they are consecutive.
 
-    Only 1 stint in 3 763 keeps every lap it actually ran: the cleaning removes the pit-out lap,
+    Only 1 stint in 3 911 keeps every lap it actually ran: the cleaning removes the pit-out lap,
     the pit-in lap, lap 1 and anything above PACE_MAX. So "the sum of a whole stint" is not
     available. What is available is a run of **consecutive** clean laps, which is what the
     simulator adds, so a stint with a hole inside it is left out rather than summed across the
@@ -284,7 +286,7 @@ def compare(train, valid, apart, specs=SPECS):
 def loro(base, tyre=True):
     """Leave one race out, fit on the other races of the same circuit, error after removing the
     mean of each driver in the held-out race: the protocol of `data-viz.ipynb` section 11, on
-    `gap`. Phase 1 reports 0.771 s without a tyre term and 0.703 s with one slope per circuit.
+    `gap`. Phase 1 reports 0.778 s without a tyre term and 0.714 s with one slope per circuit.
     Differences: the fit here has no driver level in training, and no minimum laps per compound.
     """
     res = []

@@ -46,15 +46,15 @@ is common to them; quoting one where another belongs is a mistake, not a roundin
 - **0.058 s/lap** - assumed, not measured: the mass calculation above. Fuel only, no track evolution, no wear.
 - **-0.057 s/lap** - phase 1's fitted coefficient on lap number, with tyre age in the same model (median over the races).
   Fuel **and** track evolution; wear is held out by the age term.
-- **-0.0445 s/lap** - the raw slope of `gap` on lap number with no age term (`02-baseline.ipynb` section 4). The same thing
+- **-0.0449 s/lap** - the raw slope of `gap` on lap number with no age term (`02-baseline.ipynb` section 4). The same thing
   **minus** the share of tyre wear that rides on lap number, so it lands closer to zero.
 
 The last two are one measurement read two ways, tied by the omitted-variable identity, **exact race by race**:
 `raw slope = fuel coefficient + (age coefficient) x (slope of age on lap number)`.
 Tyre age grows with the lap number and wear slows a lap while fuel speeds it up, so dropping the age term nets the two.
-Medians on the phase 2 table: raw -0.0445, fuel -0.0557, age +0.0476, age-on-lap +0.2904. Medians are **not** additive, so
+Medians on the phase 2 table: raw -0.0449, fuel -0.0557, age +0.0463, age-on-lap +0.2636. Medians are **not** additive, so
 those four do not satisfy the identity as written - it holds per race, and section 4 of `02-baseline.ipynb` prints its
-maximum error over the 77 races (2e-16). A stale "0.055" in the phase 1 Findings refers to the assumed 0.058, not to any
+maximum error over the 80 races (2e-16). A stale "0.055" in the phase 1 Findings refers to the assumed 0.058, not to any
 measurement (see the clean-up list in `docs/01-state-and-roadmap.md`).
 
 ## 6. The section 10 gap (normalised lap time)
@@ -85,3 +85,29 @@ interval obtained by resampling races.
 - A normalisation computed from the laps being predicted injects information about them; define the reference once, on the full table.
 - A within-race standard error assumes independent laps; laps of one stint are correlated, so it understates the uncertainty.
 - Fit on 2023-2024 / choose features by leave-one-race-out / read 2025 once / report 2026 separately.
+
+## 11. The error on the degradation slope (phase 3)
+Two definitions, computed the same way for every model on races it has never seen (`trees.stint_slopes`, `trees.race_age_slopes`).
+
+**A. Per stint.** On a stint of at least 8 consecutive clean laps (8 is assumed), fit a straight line of the actual `gap` on lap number, and the
+same line on the predicted `gap`; the error is predicted slope minus actual slope. Inside one stint tyre age and lap number advance together
+(age = lap - constant), so this slope is **fuel and wear netted**, not wear alone. It is what the simulator adds along a stint. In seconds over
+the stint, a slope error `e` costs `e x n(n-1)/2` (cumulative, section 2), not `e x n`.
+
+**B. Per race.** Fit `gap = c + a x lap + b x age` on all the laps of the held-out race; drivers pit on different laps, which separates `b`
+(wear) from `a` (fuel and track). Fit the same regression on the model's **predictions** for those same laps; the error is the difference of
+the two `b`. For a linear model of that form it returns its own coefficient exactly; for a tree model it reads the slope it implies on the laps
+actually driven, without inventing tyre ages.
+
+**B'.** Same as B with a free level per driver (every column centred inside each driver before the fit). B has no driver term, so its `b` also
+carries **who** runs old tyres: if slower cars stop later, old tyres look slower than they are. B' reads the slope inside a driver's race,
+as the phase 1 fit did.
+
+Worked reading: on valid 2025 the actual B' coefficient averages +0.0435 s per lap of age; the reference misses it by 0.028 s/lap (rmse over
+21 races), XGBoost by 0.016. On a 25-lap stint, a bias of 0.006 s/lap is 0.006 x 300 = 1.8 s.
+
+## 12. Partial dependence (phase 3)
+To read what a model attaches to tyre age alone: give every lap of a sample the same age `a`, leave everything else on the lap unchanged (lap
+number included, so the fuel effect is held fixed), predict, average. Repeat for `a` = 1 to 40 and read the curve against age 1. Limit: it
+creates laps that do not exist (age 40 on lap 5), so the curve is only as good as the model is there; on valid 2025, 99 % of laps have a tyre of
+47 laps or less, half of them 13 or less.
