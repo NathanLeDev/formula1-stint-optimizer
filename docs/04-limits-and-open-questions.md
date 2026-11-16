@@ -18,11 +18,11 @@ do not predict held-out races better than a single slope.
   temperature and laps since last neutralisation (temperature is already in `build_base`).
 
 ## Validation weaknesses
-- The held-out RMSE (0.714) gives each driver of the tested race a free pace level estimated on that race: comparative, not a forecast.
+- The held-out RMSE (0.706) gives each driver of the tested race a free pace level estimated on that race: comparative, not a forecast.
   Needed: the same with a driver/team level estimated on past races only.
 - Within-race standard errors (0.005 s/lap) understate uncertainty (autocorrelated laps); the between-race dispersion is the honest one.
 - The leave-one-race-out trains with 2026 races of the same circuit; only the evaluation is restricted to 2023-2025 in the 4b check.
-- Win counts (34/79, 28/62) are coin flips; report an average RMSE difference with a resampling interval.
+- Win counts (31/79, 25/62) are coin flips; report an average RMSE difference with a resampling interval.
 
 ## Data and measurement limits
 - A median stint length describes when a compound was used (strategy, safety cars, survivors), not its life. Monza soft: median 3 laps
@@ -31,9 +31,12 @@ do not predict held-out races better than a single slope.
   retained for 154 stints). Part of the long tail may be measurement (yellow flags, traffic behind a slow car).
 - Thin circuits: Madring has no training race, Silverstone one; 2026 has one race per circuit (slope 2026 is a drift signal).
 - Races with no weather rows may count as dry; check how many.
+- 7 races of 2023 carry no `pit` row (Sakhir, Jeddah, Melbourne, Baku, Miami, Imola, Monte Carlo). Their in-laps now come from `stints`
+  (right on 90.6 % of the boundaries where both exist), but they still give **no pit-loss measurement**: the phase 1 pit loss and step 4
+  must either recover their stops from `stints` or state the gap.
 - Pit loss and stint lengths average four seasons while the slope uses 2023-2025; 2026 pit loss is about 2 s higher.
 - The straight line cannot represent an end-of-life cliff; 40-lap stint costs are extrapolations. Phase 3 (2026-11-12): XGBoost's partial
-  dependence on age is concave and **flat from age 30 on** (+1.06 s, against +1.46 s for the line at 30), no cliff. Hypothesis, untested: a
+  dependence on age is concave and **flat from age 30 on** (+1.05 s, against +1.43 s for the line at 30), no cliff. Hypothesis, untested: a
   selection effect (only tyres that hold up are kept beyond 30 laps; 8.0 % of the training laps). Until tested, the flat part must not price
   very long stints.
 - The fuel limit drops to 70 kg in 2026, so the fuel coefficient and slopes do not transfer to 2026.
@@ -50,11 +53,15 @@ or practice.
 
 ## Phase 3 limits (2026-11-12)
 - XGBoost's gain is on the per-lap error inside a driver's race (-0.029 s on 2025, 21 races); on the sum of a stint no measurable gain on 2025,
-  and higher than `circuit + driver level` on 2026 (+1.58 s). The residual autocorrelation inside a stint is still +0.49 (stint mean removed):
+  and higher than `circuit + driver level` on 2026 (+1.63 s). The residual autocorrelation inside a stint is still +0.49 (stint mean removed):
   a model of the mean lap does not remove it.
 - The slope of a single stint is predicted no better than zero by any model (definition A).
-- XGBoost learns almost one age curve for the whole calendar (0.031 to 0.044 s/lap per circuit). It is closer to the slope of an unseen race
+- XGBoost learns almost one age curve for the whole calendar (0.031 to 0.042 s/lap per circuit). It is closer to the slope of an unseen race
   than the per-circuit line, but circuit differences that are real would be lost with it.
+- **XGBoost is not additive in tyre age and race phase** (checked 2026-11-12, `03-xgboost.ipynb` section 6.2): 92 of the 103 trees that use
+  age also split on lap number or race fraction; within observed ages, a 20-lap stint costs 11.0 s of wear in the second fifth of the race
+  against 12.0-12.4 s later (about 1.4 s), and wear is flatter in the opening fifth. The fuel part then does not fully cancel between
+  strategies. Cause not established; hypotheses: fuel and track state, the compound confound, how first stints are driven.
 - One split, 21 and 18 races; intervals resample races, not the training set, the folds or the seed. Learning rate, `subsample`,
   `min_child_weight` and the 8-lap floor of definition A are assumed.
 

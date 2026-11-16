@@ -14,6 +14,10 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
   a race with no weather rows counts as dry — to check).
 - **A yellow flag is not a neutralisation.** Section 6 measures yellows separately; the two rank circuits differently.
 - **A lap shared by two stints** (the pit lap closes one and opens the next) belongs to the stint that ends.
+- **In-laps of races with no `pit` row are taken from `stints`** (2026-11-12, `f1data.entry_laps()`): the last lap of a stint that
+  another stint follows. Why: 7 races of 2023 carry no `pit` row, and 67 of their in-laps (+3.95 s on average, all at the end of a
+  stint) had stayed in the training table and inflated end-of-stint wear (Baku slope 0.034 -> 0.026 s/lap). Only for those races: on
+  races that carry both, `stints` agrees with `pit` on 90.6 % of the boundaries, so `pit` stays the source where it exists.
 - **One table built in one place.** `build_base()` replaced three cells of the notebook that each built
   their own version; results were checked identical after the move.
 
@@ -32,10 +36,10 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
   The fixed constant used for the section 8 picture (0.058 s/lap) is an assumption: 110 kg / 56 laps = 1.96 kg per lap,
   x 0.03 s per kg, neither number sourced (110 kg is the 2025 maximum; teams may carry less). For Austin the fitted
   value is -0.069.
-- **2026 is held out of training.** Median slope 0.053 / 0.051 / 0.039 / 0.028 for 2023-2026, and the 2026 fuel
+- **2026 is held out of training.** Median slope 0.052 / 0.051 / 0.039 / 0.028 for 2023-2026, and the 2026 fuel
   limit is 70 kg instead of 110. `slope 2026` is reported beside the training value, never merged.
 - **Publication rules**: a slope needs >= 2 training races, its dispersion >= 3; below 3 the cell carries the
-  calendar-wide median (0.015 s/lap). Silverstone (1 race) and Madring (0) publish no slope.
+  calendar-wide median (0.012 s/lap). Silverstone (1 race) and Madring (0) publish no slope.
 - **Plain medians for the slope across races**, standard deviation between races as the dispersion (the in-race
   standard error, 0.005, understates it).
 
@@ -70,8 +74,8 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
   wide. (The earlier x2.25 / x1.87 / 21 % figures came from 2023-2026, with the ranges and the correlations computed on different circuit sets.)
 - **One constant per race, computed once on the full table, stored in `ref_pace`.** Recomputed on a subset the reference moves by up to 1.25 s
   (tyre age <= 15 laps). That shift is **not** an error of the same size: the two add roughly in quadrature, and re-fitting on that target costs
-  +0.095 s of raw RMSE and +2.80 s of stint error on 2025 — real, and more than the +0.064 s the whole tyre term was worth in phase 1, but not the
-  ~18x the raw 1.25 s would suggest. On the laps whose traffic is known the same exercise costs nothing measurable (-0.0002 s). And `rmse within
+  +0.096 s of raw RMSE and +2.84 s of stint error on 2025 — real, and more than the +0.064 s the whole tyre term was worth in phase 1, but not the
+  ~18x the raw 1.25 s would suggest. On the laps whose traffic is known the same exercise costs nothing measurable (+0.0001 s). And `rmse within
   driver` is immune by construction: a shift constant inside a race cancels when the mean of each (race, driver) is removed. So the rule protects the
   raw error and the stint error, the two the simulator inherits. `check_target()` asserts median gap 0 per race and no missing values.
 - **What the target keeps and removes**: keeps fuel, driver and team level, tyre age, compound, weather; removes the level of the race itself
@@ -92,7 +96,7 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
 - **2026 is apart, not in the validation.** New regulations (median slope 0.028 s/lap against 0.051 in 2024), so it is kept out of both the fit
   and the model choice, and read as how far the reference travels rather than as a target to tune on.
 - **The reference is `circuit` alone** (2026-11-01). **This revises the 2026-10-31 decision "one slope per circuit plus a compound offset"**: on
-  valid 2025 the offset shows no measurable gain (0.971 s against 0.948 s rmse, and higher on every other metric), and neither does a fit per
+  valid 2025 the offset shows no measurable gain (0.967 s against 0.947 s rmse, and higher on every other metric), and neither does a fit per
   (circuit, compound) cell (0.960 s). One split with no interval attached, so the claim is "no gain measured", not "worse". What would change
   it: an interval on the difference, or a method that borrows the compound slope across circuits.
 - **Two errors per lap, and one per stint.** `rmse` is the raw error. `rmse within driver` removes the mean of each (race, driver) and is both
@@ -103,18 +107,18 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
   82.9 % have their clean laps consecutive, which is what the simulator adds. A stint with a hole inside it is left out rather than summed
   across the hole, and a one-lap "sum" is already covered by the per-lap RMSE. Cost: the 17.1 % left out skew long, so this is a selection and
   is stated as one. Brackets are on the clean consecutive laps, not on the nominal stint length.
-- **`loro()` has two separate uses.** On the whole table it is the only version comparable with phase 1's 0.714 s; restricted to 2023-2024 it
+- **`loro()` has two separate uses.** On the whole table it is the only version comparable with phase 1's 0.706 s; restricted to 2023-2024 it
   would not compare at all. On 2023-2024 alone it is the only version that may decide a variable, since deciding on the whole table means
   deciding on 2025 and 2026. On 2023-2024 it covers only 17 of 24 circuits (81.5 % of the laps), so it is a weaker arbiter here than in phase 1.
-- **The phase 2 replay does not reproduce phase 1's 0.714 s**: it gives 0.737 s on the whole table (80 races against 79), and 0.717 s against
-  0.684 s on 2023-2025.
+- **The phase 2 replay does not reproduce phase 1's 0.706 s**: it gives 0.730 s on the whole table (80 races against 79), and 0.707 s against
+  0.674 s on 2023-2025.
   Recorded as open, not resolved by adjusting either number. See `docs/01-state-and-roadmap.md` for the candidate causes.
 - **Known deviation: 2025 was used to choose, not only to confirm.** `loro()` fits a fixed layout and cannot rank the five specs, so the ranking
   comes from the validation. Recorded rather than fixed; the 2026 column is the honest one.
-- **`circuit + driver level` is a two-stage fit**, which is why its training bias is -0.059 s instead of ~0: `level_beta` is estimated on the
+- **`circuit + driver level` is a two-stage fit**, which is why its training bias is -0.055 s instead of ~0: `level_beta` is estimated on the
   residuals of the other coefficients, not jointly with them. Its coefficients are not least-squares estimates of its own design matrix. What
   would change it: one joint `lstsq` with the level as a column.
-- **Traffic is measured, never used as an input.** Mean residual +0.419 s on the 25 % of laps within 1 s of a car ahead against -0.129 s in
+- **Traffic is measured, never used as an input.** Mean residual +0.422 s on the 25 % of laps within 1 s of a car ahead against -0.126 s in
   clear air. It depends on the other cars, so it sets a floor on the per-lap error rather than offering a variable; phase 3 is to be judged on
   the error it reaches despite it, not against an error that pretends traffic is knowable.
 
@@ -130,17 +134,24 @@ One entry per decision: what was chosen, why, and what would change it. Dates ar
 - **Every phase 3 choice is made inside 2023-2024**, by 5-fold cross-validation on whole races, criterion out-of-fold `rmse within driver`.
   2025 is read once. This is the phase 2 deviation (2025 used to choose) not repeated. One exception, stated in the notebook: definition B'
   of the slope error was added after reading 2025; it changes how the slope is read, not which model was chosen.
-- **Model kept**: `lap_number`, `age`, `circuit`, `race_frac`, `driver_level`; depth 2; 200 trees; monotone on `age`. `compound` and
+- **Model kept**: `lap_number`, `age`, `circuit`, `race_frac`, `driver_level`; depth 2; 200 trees; monotone on `age`.
+- **Depth 2 kept against the strict criterion** (2026-11-12). After the in-lap correction the out-of-fold `rmse within driver` is
+  0.657 s at depth 3 against 0.658 s at depth 2; depth 3 is worse by 0.055 s of raw error and 2.0 s of stint error. A tie-break decided
+  after seeing the 2023-2024 cross-validation, before 2025 was read again, and recorded as such. What would change it: a gap on
+  `rmse within driver` larger than the noise of the folds. `compound` and
   `track_temp` show no measurable gain inside 2023-2024 and are left out. `traffic` is never a feature.
-- **The monotonic constraint on age is kept**: no measurable cost (+0.001 s out of fold, every interval contains zero), and it removes local
-  dips on 2 of 21 circuits. What would change it: a measurable cost on a larger sample.
-- **`driver_level` is kept for the raw and stint errors**, not for `rmse within driver` (-0.003 s [-0.013, +0.004], as expected for a level
+- **The monotonic constraint on age is kept**: no measurable cost (-0.0004 to +0.0015 s out of fold, every interval contains zero), and it
+  removes local dips on 4 of 21 circuits. What would change it: a measurable cost on a larger sample.
+- **`driver_level` is kept for the raw and stint errors**, not for `rmse within driver` (-0.004 s [-0.013, +0.004], as expected for a level
   constant inside a race).
-- **200 trees, not 100**: the criterion fixed in advance picks 200; the raw and stint errors would pick 100 (about 0.015 s and 1.2 s out of
+- **200 trees, not 100**: the criterion fixed in advance picks 200; the raw and stint errors would pick 100 (about 0.018 s and 1.3 s out of
   fold). Recorded rather than re-chosen after the fact.
 - **The slope error has two definitions, both reported** (`docs/03-concepts-and-maths.md` section 11): A per stint, B (and B') per race.
 - **Differences are given with a 95 % interval from resampling whole races**, not as win counts.
-- **Verdict recorded as is**: XGBoost beats the reference on `rmse within driver` on 2025 (-0.029 s [-0.058, -0.007]) and not on any
+- **The simulator predicts lap by lap** (lap number, race fraction and tyre age on every lap), not a wear curve added to a constant. Why:
+  XGBoost is not additive in age and race phase (section 6.2 of `03-xgboost.ipynb`), so with it the fuel part does not cancel between
+  strategies. With the linear reference the two ways give the same answer, so the lap-by-lap rule costs nothing there.
+- **Verdict recorded as is**: XGBoost beats the reference on `rmse within driver` on 2025 (-0.029 s [-0.058, -0.008]) and not on any
   stint-sum error; on 2026 it is higher than `circuit + driver level` on the absolute stint error. Not adopted as the simulator's model on
   these numbers: both models go to step 6.
 
