@@ -274,15 +274,52 @@ def dry_keys(weather, races, rain_max=RAIN_MAX):
 
 # 4. Cleaning -----------------------------------------------------------------
 
-def clean_laps(laps, pit, pace_max=PACE_MAX):
+def pit_entries(pit, stints=None):
+    """One row per pit entry: `session_key`, `driver_number`, `lap_number`, `source`.
+
+    `source` is "pit" for a row of the `pit` endpoint and "stints" for an entry
+    lap read off `stints` in a race that has no `pit` row (see `entry_laps()`).
+    The pit-stop loss of phase 4 and the lap cleaning read the same table, so a
+    stop is defined in one place.
+    """
+    cols = ["session_key", "driver_number", "lap_number"]
+    out = pit[cols].assign(source="pit")
+    if stints is None or stints.empty:
+        return out.reset_index(drop=True)
+    st = stints[~stints["session_key"].isin(set(pit["session_key"]))]
+    last = st.groupby(["session_key", "driver_number"])["stint_number"].transform("max")
+    ended = (st[st["stint_number"] < last][["session_key", "driver_number", "lap_end"]]
+             .rename(columns={"lap_end": "lap_number"}).drop_duplicates())
+    return pd.concat([out, ended.assign(source="stints")], ignore_index=True)
+
+
+def entry_laps(pit, stints=None):
+    """(session_key, driver_number, lap_number) of every lap a car entered the pits on.
+
+    The `pit` endpoint gives the entry lap. Some races carry no `pit` row at all
+    (Sakhir, Jeddah, Melbourne, Baku, Miami, Imola and Monte Carlo 2023 at the
+    time of writing), and for those nothing marked the in-laps: 67 of them stayed
+    in the table, all in 2023, all at the end of a stint, +3.95 s above the race
+    median on average. For a race with no `pit` row the entry lap is taken from
+    `stints` instead: the last lap of every stint that another stint follows.
+    On the races that carry both, that lap is the `pit` entry lap for 90.6 % of
+    the stint boundaries; the out-lap after it is already flagged
+    `is_pit_out_lap`.
+    """
+    e = pit_entries(pit, stints)
+    return set(zip(e["session_key"], e["driver_number"], e["lap_number"]))
+
+
+def clean_laps(laps, pit, stints=None, pace_max=PACE_MAX):
     """The laps that reflect actual pace.
 
-    Dropped: laps with no time, out-laps, in-laps (the `pit` endpoint gives the
-    entry lap), and laps above pace_max x the fastest lap of their own race
-    (safety car, traffic, flags). `pace` is kept — a lap time over the best lap
-    of its own race is comparable from one circuit to the next.
+    Dropped: laps with no time, out-laps, in-laps (from `entry_laps()`: the `pit`
+    endpoint, or `stints` for a race that has no `pit` row — pass `stints`, or
+    those races keep their in-laps), and laps above pace_max x the fastest lap of
+    their own race (safety car, traffic, flags). `pace` is kept — a lap time over
+    the best lap of its own race is comparable from one circuit to the next.
     """
-    entry = set(zip(pit["session_key"], pit["driver_number"], pit["lap_number"]))
+    entry = entry_laps(pit, stints)
     keys = pd.Series(list(zip(laps["session_key"], laps["driver_number"], laps["lap_number"])),
                      index=laps.index)
     out = laps[laps["lap_duration"].notna() & ~laps["is_pit_out_lap"]
@@ -410,7 +447,7 @@ def build_base(raw=None, *, seasons=SEASONS, dry_only=True, neutral=True, from_l
     if raw is None:
         raw = load_raw(seasons, traffic=traffic)
 
-    laps = clean_laps(raw.laps, raw.pit)
+    laps = clean_laps(raw.laps, raw.pit, raw.stints)
     if dry_only:
         laps = laps[laps["session_key"].isin(dry_keys(raw.weather, raw.races))]
     if from_lap:

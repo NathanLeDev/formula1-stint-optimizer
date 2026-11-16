@@ -103,11 +103,39 @@ actually driven, without inventing tyre ages.
 carries **who** runs old tyres: if slower cars stop later, old tyres look slower than they are. B' reads the slope inside a driver's race,
 as the phase 1 fit did.
 
-Worked reading: on valid 2025 the actual B' coefficient averages +0.0435 s per lap of age; the reference misses it by 0.028 s/lap (rmse over
-21 races), XGBoost by 0.016. On a 25-lap stint, a bias of 0.006 s/lap is 0.006 x 300 = 1.8 s.
+Worked reading: on valid 2025 the actual B' coefficient averages +0.0435 s per lap of age; the reference misses it by 0.029 s/lap (rmse over
+21 races), XGBoost by 0.017. On a 25-lap stint, a bias of 0.007 s/lap is 0.007 x 300 = 2.0 s.
 
 ## 12. Partial dependence (phase 3)
 To read what a model attaches to tyre age alone: give every lap of a sample the same age `a`, leave everything else on the lap unchanged (lap
 number included, so the fuel effect is held fixed), predict, average. Repeat for `a` = 1 to 40 and read the curve against age 1. Limit: it
 creates laps that do not exist (age 40 on lap 5), so the curve is only as good as the model is there; on valid 2025, 99 % of laps have a tyre of
 47 laps or less, half of them 13 or less.
+
+## 13. What decides a strategy, and what cancels (phase 3)
+The simulator compares strategies **of one driver in one race**. Split the predicted race time into its parts:
+
+    race time = sum over laps of (level of the race)        -> the same for every strategy
+              + sum over laps of (level of the driver)      -> the same
+              + sum over laps of (fuel and track, by lap)   -> the same: every strategy runs the same laps 1..L
+              + sum over laps of (wear, by tyre age)        -> changes with the strategy
+              + k x pit loss                                -> changes with the strategy
+
+So the ranking of two strategies depends only on the **wear curve** and the **pit loss**. Most of the per-lap error (0.8 s raw) sits in
+the first three lines and cancels in the comparison; what does not cancel is the error on the wear curve, which is why the per-race slope
+error (section 11, definition B) is the metric closest to the simulator's question.
+
+**Condition: the model must be additive in lap number and tyre age.** The linear reference is, by construction. XGBoost is not: 92 of the
+103 trees that use age also split on lap number or race fraction (`03-xgboost.ipynb` section 6.2), and within the ages actually observed a
+20-lap stint costs about 1.4 s less wear in the second fifth of the race than later. With XGBoost the fuel part does not fully cancel, and
+the simulator has to predict lap by lap rather than add a wear curve to a constant.
+
+**How large a slope error is, in a decision.** Linear wear, equal stints, a race of L = 56 laps (section 4). The wear term is
+`slope x L x (L/(k+1) - 1) / 2`: 756 lap-ages for one stop, 494.7 for two, a difference of 261.3. A slope error `e` therefore moves the
+one-stop-versus-two-stop comparison by `261.3 x e`:
+- `e` = 0.016 s/lap (XGBoost's rmse on definition B, valid 2025): about **4.2 s**;
+- `e` = 0.029-0.030 s/lap (the reference's, B' and B): about 7.6-7.8 s.
+
+Austin's margin between one and two stops is 9.1 s (54.8 against 63.9 s, section 4): the first error does not overturn it, the second
+nearly does. Phase 1's stop-count misses sit at 0.3-4.1 s (Interlagos, Spa, Zandvoort), well inside both. Assumptions: equal stints, one
+slope for all compounds, constant pit loss; `e` is an rmse over races, so a given race can be off by more.
